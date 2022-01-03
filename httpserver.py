@@ -22,7 +22,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         print("starting polling loop.")
         while(p.poll() is None):
-            print "looping... "
+            print("looping... ")
             stdoutdata = p.stdout.read(DataChunkSize)
             self.wfile.write(stdoutdata)
 

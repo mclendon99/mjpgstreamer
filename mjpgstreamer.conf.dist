@@ -1,0 +1,8 @@
+[server]
+listen =
+port = 8090
+[/dev/video0]
+width = 640
+height = 480
+fps = 30
+# you can set any V4L2 control too, list them with the -l option

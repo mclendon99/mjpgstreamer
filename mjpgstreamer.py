@@ -1,15 +1,24 @@
 #! /usr/bin/python3
+""" mjpgstreamer.py
+    Stream mjpg to a client, e.g. github.com://mclendon99/gps_tracker
+    Based on github.com://soyersoyer/fmp4streamer
+
+    Todo:
+    - handle multiple html connections to any camera
+    - support multiple cameras
+
+"""
+
+__author__ = "McLendon"
+__license__ = """
+"""
+
 import os,logging, getopt, time, errno, sys, timeit, socketserver,configparser
 
 from http.server import BaseHTTPRequestHandler,HTTPServer
 from threading import Thread
 from v4l2py import Device
 
-hostName = ''
-hostPort = 8090
-height = 480
-width = 640
-fps = 30
 
 
 import socket
@@ -43,11 +52,16 @@ class HTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 class CameraThread(Thread):
     def __init__(self, camera):
         super(CameraThread, self).__init__()
-
+        self.camera = camera
+    def start(self):
+        self.camera.video_capture.start()
+    def stop(self):
+        self.camera.video_capture.stop()
 
 class RequestHandler(BaseHTTPRequestHandler):
     def process_frames(self):
         frame_budget = 1000 / fps
+        # If the camera is stopped, this will stop since there are no more frames
         for frame in camera:
             try:
                  start = timeit.default_timer()
@@ -63,7 +77,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                     self.end_headers()
                  except Exception as e:
                     print(f'{time.asctime()}Send 404 failed {self.client_address} {str(e)}')
-                 break
 
     def do_GET(self):
         print(f'{time.asctime()} do_GET from {self.client_address}')
@@ -88,7 +101,7 @@ class Config(configparser.ConfigParser):
         self.read_dict({'server': {'listen': '', 'port': 8090}})
 
         if len(self.read(configfile)) == 0:
-            logging.warning(f'Couldn\'t read {configfile}, using deault config')
+            logging.warning(f'Couldn\'t read {configfile}, using default config')
 
         if len(self.sections()) == 1:
             self.add_section('/dev/video0')
@@ -119,6 +132,14 @@ def usage():
 
 
 if __name__ == '__main__':
+    # Some defaults
+    hostName = ''
+    hostPort = 8090
+    height = 480
+    width = 640
+    fps = 30
+    list_controls = False
+    configfile = "mjpgstreamer.conf"
 
     try:
         arguments, values = getopt.getopt(sys.argv[1:], "hlc:", ["help", "list-controls","config="])
@@ -127,7 +148,6 @@ if __name__ == '__main__':
         usage()
         sys.exit(-1)
     
-    list_controls = False
     configfile = "mp4streamer.conf"
     
     for current_argument, current_value in arguments:
@@ -146,11 +166,11 @@ if __name__ == '__main__':
 
     camera = Device(device)
     if list_controls:
-        camera.print_ctrls()
+        print(camera.video_capture.get_format())
+        print(camera.video_capture.get_fps(),' FPS')
+        info = str(camera.info)
+        print(info.replace(',','\n'))
         sys.exit(0)
-
-    camera.video_capture.set_format(config.getint(device,'width'), config.getint(device,'height'), 'MJPG')
-    camera.video_capture.set_fps(config.getint(device,'fps'))
 
     cameraThread = CameraThread(camera)
 
@@ -160,7 +180,6 @@ if __name__ == '__main__':
     srvr = HTTPServer((hostname,hostport), RequestHandler)
     print(f'{time.asctime()} Server Starts - {hostname}:{hostport}')
 
-    cameraThread.start()
     srvr.start()
     cameraThread.join();
    

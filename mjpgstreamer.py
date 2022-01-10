@@ -141,18 +141,22 @@ class Config(configparser.ConfigParser):
             'height': 480,
             'fps': 30,
         })
-        self.read_dict({'server': {'listen': '', 'port': 8090,'keyfile':'', 'certfile':''}})
+        self.read_dict({'default': {'logfile': '/var/tmp/mjpgstreamer.log', \
+                       'loglevel':'WARNING'}})
+
+        self.read_dict({'server': {'listen': '', 'port': 8090,'keyfile':'', \
+                       'certfile':''}})
 
         if len(self.read(configfile)) == 0:
             logging.warning(f'Couldn\'t read {configfile}, using default config')
 
-        if len(self.sections()) == 1:
+        if len(self.sections()) == 2:
             self.add_section('/dev/video0')
 
         self.device = self.get_devices()[0]
 
     def get_devices(self):
-        return [s for s in self.sections() if s != 'server']
+        return [s for s in self.sections() if s != 'server' and s != 'default']
 
     def get_device(self):
         return self.device
@@ -167,10 +171,16 @@ class Config(configparser.ConfigParser):
         return int(self[self.device]['fps'])
 
     def certfile(self):
-        return self[self.server]['certfile'])
+        return config['server']['certfile']
 
     def keyfile(self):
-        return self[self.server]['keyfile'])
+        return config['server']['keyfile']
+
+    def logfile(self):
+        return config['default']['logfile']
+
+    def loglevel(self):
+        return config['default']['logfile']
 
 def usage():
     print(f'usage: python3 {sys.argv[0]} [--help] [--list-controls] [--config CONFIG]\n')
@@ -178,20 +188,11 @@ def usage():
     print(f'  -h, --help                  show this help message and exit')
     print(f'  -l, --list-controls         list the v4l2 controls and values for the camera')
     print(f'  -c CONFIG, --config CONFIG  use CONFIG as a config file, default: mjpgstreamer.conf')
-    print(f'  -d {DEBUG|INFO|WARNING|ERROR|CRITICAL}')
+    print(f'  -d {DEBUG|INFO|WARNING|ERROR|CRITICAL}   default: WARNING')
 
 
 if __name__ == '__main__':
-    # Some defaults
-    hostName = ''
-    hostPort = 8090
-    height = 480
-    width = 640
-    fps = 30
-    list_controls = False
-    loglevel = "WARNING"
-    configfile = "mjpgstreamer.conf"
-
+ 
     try:
         arguments, values = getopt.getopt(sys.argv[1:], "hlcd:", ["help", "list-controls","config=","debug="])
     except getopt.error as err:
@@ -199,7 +200,8 @@ if __name__ == '__main__':
         usage()
         sys.exit(-1)
     
-    configfile = "mp4streamer.conf"
+    configfile = "mjpgstreamer.conf"
+    list_controls = False
     for current_argument, current_value in arguments:
         if current_argument in ('-h', '--help'):
             usage()
@@ -212,15 +214,24 @@ if __name__ == '__main__':
         elif current_argument in ("-c", "--config"):
             configfile = current_value
     
+    # Some defaults
     config = Config(configfile)
     device = config.get_device()
 
+    logfile = config.logfile()
+    loglevel = config.loglevel()
+
+    hostname = config.get('server','listen')
+    hostport = config.getint('server','port')
+
+    height = config.height()
+    width = config.width()
+    fps =  config.fps()
+
     # Process debug level arg
     log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(funcName)s(%(lineno)d) %(message)s')
-    # Should add this to the config file
-    logFile = '/var/tmp/mjpgstreamer.log'
 
-    my_handler = RotatingFileHandler(logFile, mode='a', maxBytes=5*1024*1024,
+    my_handler = RotatingFileHandler(logfile, mode='a', maxBytes=5*1024*1024,
                                    backupCount=2, encoding=None, delay=0)
     my_handler.setFormatter(log_formatter)
     numericLevel = getattr(logging, loglevel.upper(),"WARNING")
@@ -232,6 +243,7 @@ if __name__ == '__main__':
     app_log.addHandler(my_handler)
 
     logging.info(f'Using device {device}')
+    print(f'Using device {device}')
 
     camera = Device(device)
     if list_controls:
@@ -240,9 +252,6 @@ if __name__ == '__main__':
         info = str(camera.info)
         print(info.replace(',','\n'))
         sys.exit(0)
-
-    hostname = config.get('server','listen')
-    hostport = config.getint('server','port')
 
     camera_thread = CameraThread(camera)
     logging.debug(f'Camera starts')
@@ -257,4 +266,4 @@ if __name__ == '__main__':
     srvr.start()
     camera_thread.join()
    
-    logging.debug(f'Server Stops - {hostName}:{hostPort}')
+    logging.debug(f'Server Stops - {hostname}:{hostport}')

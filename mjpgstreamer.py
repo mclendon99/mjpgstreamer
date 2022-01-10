@@ -15,11 +15,11 @@ __license__ = """
 
 import os,logging, getopt, time, errno, sys, timeit, socketserver,configparser
 
+from queue import Queue
 from http.server import BaseHTTPRequestHandler,HTTPServer
 from threading import Thread
+import threading
 from v4l2py import Device
-
-
 
 import socket
 def get_my_ip_address():
@@ -37,6 +37,38 @@ def get_my_ip_address():
 myIPAddress = get_my_ip_address()
 myHostName = str(socket.gethostname())
 
+class CameraThread(threading.Thread):
+    def __init__(self, camera):
+        super(CameraThread, self).__init__()
+        self.camera = camera
+        self.consumers = []
+        print(f'{time.asctime()} Camera initialized')
+
+    def run(self):
+        print(f'{time.asctime()} Camera running')
+        frame_budget = 1000 / fps
+        for frame in self.camera:
+           start = timeit.default_timer()
+           for c in self.consumers:
+               c.put(frame)
+           stop = timeit.default_timer()
+           diff = frame_budget - (stop - start) * 1000  # Delay in ms
+           if (diff > 0):
+              time.sleep(diff/1000) # Wait until next frame ready
+
+    def stop(self):
+        print(f'{time.asctime()} Camera stopped')
+        self.frame = None
+        self.consumers.clear()
+
+    def register_queue(self, q):
+        self.consumers.append(q)
+        print(f'{time.asctime()} Register consumer')
+
+    def unregister_queue(self, q):
+        self.consumers.remove(q)
+        print(f'{time.asctime()} Deregister consumer')
+
 class HTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
@@ -49,35 +81,40 @@ class HTTPServer(socketserver.ThreadingMixIn, HTTPServer):
       finally:
           self.server_close()
 
-class CameraThread(Thread):
-    def __init__(self, camera):
-        super(CameraThread, self).__init__()
-        self.camera = camera
-    def start(self):
-        self.camera.video_capture.start()
-    def stop(self):
-        self.camera.video_capture.stop()
-
 class RequestHandler(BaseHTTPRequestHandler):
-    def process_frames(self):
+    def process_camera_frames(self):
         frame_budget = 1000 / fps
-        # If the camera is stopped, this will stop since there are no more frames
-        for frame in camera:
-            try:
-                 start = timeit.default_timer()
-                 self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
-                 stop = timeit.default_timer()
-                 delay = (stop - start) * 1000  # Delay in ms
-                 if (delay > 0):
-                    time.sleep(delay/1000) # Wait until next frame ready
-            except Exception as e:
-                 print(f'{time.asctime()}Removed streaming client {self.client_address} {str(e)}')
-                 try:
-                    self.send_error(404)
-                    self.end_headers()
-                 except Exception as e:
-                    print(f'{time.asctime()}Send 404 failed {self.client_address} {str(e)}')
-
+        # If the camera is stopped, we close the connection
+        while True:
+          try:
+            # This blocks waiting for a camera frame
+            frame = self.q.get(block=True, timeout=5)
+            if frame is not None:
+              try:
+                self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
+              except Exception as e:
+                print(f'{time.asctime()} Removing streaming client {self.client_address} {str(e)}')
+                try:
+                  self.send_error(404)
+                  self.end_headers()
+                  return 0
+                except Exception as e:
+                  print(f'{time.asctime()} Send 404 failed {self.client_address} {str(e)}')
+                  pass # Don't kill everything. Go back and wait for new connection
+                  return 0
+            else:
+              try: 
+                print(f'{time.asctime()} Camera shutdown detected {self.client_address} {str(e)}')
+                self.send_response(404)
+                self.end_headers()
+                return -2
+              except Exception as e:
+                print(f'{time.asctime()} Send 404 failed {self.client_address} {str(e)}')
+                return -2
+          except Exception as e:
+              print(f'{time.asctime()} Empty queue timeout {str(e)}')
+              time.sleep(frame_budget/1000) # Wait until next frame ready
+                  
     def do_GET(self):
         print(f'{time.asctime()} do_GET from {self.client_address}')
         self.send_response(200)
@@ -87,9 +124,15 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
         self.send_header('Connection', 'close')
         self.end_headers()
-        self.process_frames()
-        print(f'{time.asctime()} do_GET - done looping for {self.client_address}')
-        sys.exit(0)
+        ## Register our queue and start sending frames to the client
+        self.q = Queue()
+        camera_thread.register_queue(self.q)
+        print(f'{time.asctime()} do_GET Register client {self.client_address}')
+        rc = self.process_camera_frames()
+        print(f'{time.asctime()} do_GET Unregister client {self.client_address}')
+        camera_thread.unregister_queue(self.q)
+        print(f'{time.asctime()} do_GET - exit thread {self.client_address}:{rc}')
+        sys.exit(rc)
 
 class Config(configparser.ConfigParser):
     def __init__(self, configfile):
@@ -128,7 +171,7 @@ def usage():
     print(f'optional arguments:')
     print(f'  -h, --help                  show this help message and exit')
     print(f'  -l, --list-controls         list the v4l2 controls and values for the camera')
-    print(f'  -c CONFIG, --config CONFIG  use CONFIG as a config file, default: mp4streamer.conf')
+    print(f'  -c CONFIG, --config CONFIG  use CONFIG as a config file, default: mjpgstreamer.conf')
 
 
 if __name__ == '__main__':
@@ -172,15 +215,17 @@ if __name__ == '__main__':
         print(info.replace(',','\n'))
         sys.exit(0)
 
-    cameraThread = CameraThread(camera)
-
     hostname = config.get('server','listen')
     hostport = config.getint('server','port')
+
+    camera_thread = CameraThread(camera)
+    print(f'{time.asctime()} Camera starts')
+    camera_thread.start()
 
     srvr = HTTPServer((hostname,hostport), RequestHandler)
     print(f'{time.asctime()} Server Starts - {hostname}:{hostport}')
 
     srvr.start()
-    cameraThread.join();
+    camera_thread.join()
    
     print(f'{time.asctime()} Server Stops - {hostName}:{hostPort}')

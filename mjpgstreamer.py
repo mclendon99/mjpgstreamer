@@ -1,11 +1,14 @@
 #! /usr/bin/python3
 """ mjpgstreamer.py
     Stream mjpg to a client, e.g. github.com://mclendon99/gps_tracker
-    Based on github.com://soyersoyer/fmp4streamer
+    Based loosely on github.com://soyersoyer/fmp4streamer
+    Uses v4l2py on https://pypi.org/project/v4l2py/
+    Requires v4l2 patch https://bugs.launchpad.net/python-v4l2/+bug/1664158
 
     Todo:
-    - handle multiple html connections to any camera
     - support multiple cameras
+
+__authoer__ = "McLrenndon"
 
 """
 
@@ -14,7 +17,7 @@ __license__ = """
 """
 
 import os,logging, getopt, time, errno, sys, timeit, socketserver,configparser
-
+from logging.handlers import RotatingFileHandler
 from queue import Queue
 from http.server import BaseHTTPRequestHandler,HTTPServer
 from threading import Thread
@@ -42,10 +45,10 @@ class CameraThread(threading.Thread):
         super(CameraThread, self).__init__()
         self.camera = camera
         self.consumers = []
-        print(f'{time.asctime()} Camera initialized')
+        logging.debug(f'Camera initialized')
 
     def run(self):
-        print(f'{time.asctime()} Camera running')
+        logging.debug(f'Camera running')
         frame_budget = 1000 / fps
         for frame in self.camera:
            start = timeit.default_timer()
@@ -57,17 +60,17 @@ class CameraThread(threading.Thread):
               time.sleep(diff/1000) # Wait until next frame ready
 
     def stop(self):
-        print(f'{time.asctime()} Camera stopped')
+        logging.debug(f'Camera stopped')
         self.frame = None
         self.consumers.clear()
 
     def register_queue(self, q):
         self.consumers.append(q)
-        print(f'{time.asctime()} Register consumer')
+        logging.debug(f'Register consumer')
 
     def unregister_queue(self, q):
         self.consumers.remove(q)
-        print(f'{time.asctime()} Deregister consumer')
+        logging.debug(f'Deregister consumer')
 
 class HTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
@@ -93,30 +96,29 @@ class RequestHandler(BaseHTTPRequestHandler):
               try:
                 self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
               except Exception as e:
-                print(f'{time.asctime()} Removing streaming client {self.client_address} {str(e)}')
+                logging.warning(f'Removing streaming client {self.client_address} {str(e)}')
                 try:
                   self.send_error(404)
                   self.end_headers()
                   return 0
                 except Exception as e:
-                  print(f'{time.asctime()} Send 404 failed {self.client_address} {str(e)}')
-                  pass # Don't kill everything. Go back and wait for new connection
-                  return 0
+                  logging.info(f'Send 404 failed {self.client_address} {str(e)}')
+                  return 0 # Don't kill everything. Go back and wait for new connection
             else:
               try: 
-                print(f'{time.asctime()} Camera shutdown detected {self.client_address} {str(e)}')
+                logging.info(f'Camera shutdown detected {self.client_address} {str(e)}')
                 self.send_response(404)
                 self.end_headers()
                 return -2
               except Exception as e:
-                print(f'{time.asctime()} Send 404 failed {self.client_address} {str(e)}')
+                logging.warning(f'Send 404 failed {self.client_address} {str(e)}')
                 return -2
           except Exception as e:
-              print(f'{time.asctime()} Empty queue timeout {str(e)}')
+              logging.info(f'Empty queue timeout {str(e)}')
               time.sleep(frame_budget/1000) # Wait until next frame ready
                   
     def do_GET(self):
-        print(f'{time.asctime()} do_GET from {self.client_address}')
+        logging.debug(f'do_GET from {self.client_address}')
         self.send_response(200)
         self.send_header('Age','0')
         self.send_header('Expires','0')
@@ -127,11 +129,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         ## Register our queue and start sending frames to the client
         self.q = Queue()
         camera_thread.register_queue(self.q)
-        print(f'{time.asctime()} do_GET Register client {self.client_address}')
+        logging.debug(f'do_GET Register client {self.client_address}')
         rc = self.process_camera_frames()
-        print(f'{time.asctime()} do_GET Unregister client {self.client_address}')
+        logging.debug(f'do_GET Unregister client {self.client_address}')
         camera_thread.unregister_queue(self.q)
-        print(f'{time.asctime()} do_GET - exit thread {self.client_address}:{rc}')
+        logging.debug(f'do_GET - exit thread {self.client_address}:{rc}')
         sys.exit(rc)
 
 class Config(configparser.ConfigParser):
@@ -172,6 +174,7 @@ def usage():
     print(f'  -h, --help                  show this help message and exit')
     print(f'  -l, --list-controls         list the v4l2 controls and values for the camera')
     print(f'  -c CONFIG, --config CONFIG  use CONFIG as a config file, default: mjpgstreamer.conf')
+    print(f'  -d {DEBUG|INFO|WARNING|ERROR|CRITICAL}')
 
 
 if __name__ == '__main__':
@@ -182,21 +185,24 @@ if __name__ == '__main__':
     width = 640
     fps = 30
     list_controls = False
+    loglevel = "WARNING"
     configfile = "mjpgstreamer.conf"
 
     try:
-        arguments, values = getopt.getopt(sys.argv[1:], "hlc:", ["help", "list-controls","config="])
+        arguments, values = getopt.getopt(sys.argv[1:], "hlcd:", ["help", "list-controls","config=","debug="])
     except getopt.error as err:
         print(err)
         usage()
         sys.exit(-1)
     
     configfile = "mp4streamer.conf"
-    
     for current_argument, current_value in arguments:
         if current_argument in ('-h', '--help'):
             usage()
             sys.exit(0)
+        elif opt in( '-d', '--debug'):
+            loglevel = arg
+            print("Using log level:"+loglevel)
         elif current_argument in ("-l", "--list-controls"):
             list_controls = True
         elif current_argument in ("-c", "--config"):
@@ -205,7 +211,24 @@ if __name__ == '__main__':
     config = Config(configfile)
     device = config.get_device()
 
-    print(f'{time.asctime()} Using device {device}')
+    # Process debug level arg
+    log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(funcName)s(%(lineno)d) %(message)s')
+    # Should add this to the config file
+    logFile = '/var/tmp/mjpgstreamer.log'
+
+    my_handler = RotatingFileHandler(logFile, mode='a', maxBytes=5*1024*1024,
+                                   backupCount=2, encoding=None, delay=0)
+    my_handler.setFormatter(log_formatter)
+    numericLevel = getattr(logging, loglevel.upper(),"WARNING")
+    print("Using log level:" + str(numericLevel))
+    my_handler.setLevel(numericLevel)
+
+    app_log = logging.getLogger('root')
+    app_log.setLevel(numericLevel)
+    app_log.addHandler(my_handler)
+
+
+    logging.info(f'Using device {device}')
 
     camera = Device(device)
     if list_controls:
@@ -219,13 +242,13 @@ if __name__ == '__main__':
     hostport = config.getint('server','port')
 
     camera_thread = CameraThread(camera)
-    print(f'{time.asctime()} Camera starts')
+    logging.debug(f'Camera starts')
     camera_thread.start()
 
     srvr = HTTPServer((hostname,hostport), RequestHandler)
-    print(f'{time.asctime()} Server Starts - {hostname}:{hostport}')
+    logging.debug(f'Server Starts - {hostname}:{hostport}')
 
     srvr.start()
     camera_thread.join()
    
-    print(f'{time.asctime()} Server Stops - {hostName}:{hostPort}')
+    logging.debug(f'Server Stops - {hostName}:{hostPort}')

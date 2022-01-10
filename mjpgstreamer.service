@@ -1,0 +1,11 @@
+[Unit]
+Description=mjpgstreamer
+After=network.target
+[Service]
+ExecStart=python3 mjpgstreamer.py
+Restart=always
+Environment=PATH=/usr/bin:/usr/local/bin:/bin
+WorkingDirectory=/home/pi/mjpgstreamer
+[Install]
+WantedBy=default.target
+

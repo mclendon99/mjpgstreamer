@@ -8,8 +8,6 @@
     Todo:
     - support multiple cameras
 
-__authoer__ = "McLrenndon"
-
 """
 
 __author__ = "McLendon"
@@ -143,7 +141,7 @@ class Config(configparser.ConfigParser):
             'height': 480,
             'fps': 30,
         })
-        self.read_dict({'server': {'listen': '', 'port': 8090}})
+        self.read_dict({'server': {'listen': '', 'port': 8090,'keyfile':'', 'certfile':''}})
 
         if len(self.read(configfile)) == 0:
             logging.warning(f'Couldn\'t read {configfile}, using default config')
@@ -167,6 +165,12 @@ class Config(configparser.ConfigParser):
 
     def fps(self):
         return int(self[self.device]['fps'])
+
+    def certfile(self):
+        return self[self.server]['certfile'])
+
+    def keyfile(self):
+        return self[self.server]['keyfile'])
 
 def usage():
     print(f'usage: python3 {sys.argv[0]} [--help] [--list-controls] [--config CONFIG]\n')
@@ -227,7 +231,6 @@ if __name__ == '__main__':
     app_log.setLevel(numericLevel)
     app_log.addHandler(my_handler)
 
-
     logging.info(f'Using device {device}')
 
     camera = Device(device)
@@ -247,6 +250,9 @@ if __name__ == '__main__':
 
     srvr = HTTPServer((hostname,hostport), RequestHandler)
     logging.debug(f'Server Starts - {hostname}:{hostport}')
+    if len(config.keyfile()) != 0 and len(config.certfile()) != 0 :
+        srvr.socket = ssl.wrap_socket(srvr.socket, \
+               config.keyfile(), config.certfile(), server_side=True)
 
     srvr.start()
     camera_thread.join()

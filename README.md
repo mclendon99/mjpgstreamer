@@ -21,9 +21,9 @@ The v4l2py library was also used. Be sure to patch the v4l2 library as indicated
 - Configurable via config file
 
 #### Todo
+- Support configuration of multiple servers on different ports, e.g. HTTP and HTTPS
 - Support multiple cameras of course
 - Test on the RPI with the MIPI camera
-
 
 
 [1]https://github.com/soyersoyer/fmp4streamer

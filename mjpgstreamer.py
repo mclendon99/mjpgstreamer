@@ -246,6 +246,9 @@ if __name__ == '__main__':
     camera_thread.start()
 
     srvr = HTTPServer((hostname,hostport), RequestHandler)
+    if (len(config.get('server', 'keyfile')) != 0 and len(config.get('server','certfile')) != 0 :
+        srvr.socket = ssl.wrap_socket(srvr.socket, \
+               config.get('server', 'keyfile'), config.get('server','certfile'), server_side=True)
     logging.debug(f'Server Starts - {hostname}:{hostport}')
 
     srvr.start()

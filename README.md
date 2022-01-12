@@ -20,10 +20,26 @@ The [v4l2py][2] library was also used. Be sure to patch the v4l2 library as indi
   - Try blocks everywhere
   - Lot's of logging
 - Configurable via config file
+- COmmand line options override configuration options which override default options
+
+The config file has multiple sections:
+
+The default section is labeled [default]. It takes two parameters: lofile and loglevel.
+Loglevel is a text string indicating the logging level: D(EBUG)|I(NFO)|W(ARNING)|E(RROR)|C(RITICAL)
+Loglevel may also be configured on the command line using the -d option.
+
+The logfile, if configured, sets a rotating file log. If not configured, stdout is used.
+logfile=/var/tmp/mjpgstreamer.log
+loglevel='WARNING'
+
+The [server] section configures a server to listen and the port number on which it listens for HTTP GETS. If both the keyfile (private key) and certfile (certificate) parameters are configured, the server will listen for HTTPS requests.
+
+The lasst section contains the [/path/to/video_device]. One may also configure the width, height, and frames per second (fps). These parameters are sent to the3 video device. The video device is then queried for it's actual settings.
+
 
 #### Todo
-- Support configuration of multiple servers on different ports, e.g. HTTP and HTTPS
-- Support multiple cameras (of course)
+- Support configuration of multiple servers on different ports, e.g. HTTP and HTTPS simultaneously
+- Support multiple cameras (because why not)
 - Test on the RPI with the MIPI camera
 
 [1]https://github.com/soyersoyer/fmp4streamer

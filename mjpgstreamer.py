@@ -47,15 +47,18 @@ class CameraThread(threading.Thread):
 
     def run(self):
         logger.debug(f'Camera running')
-        frame_budget = 1000 / fps
-        for frame in self.camera:
-           start = timeit.default_timer()
-           for c in self.consumers:
-               c.put(frame)
-           stop = timeit.default_timer()
-           diff = frame_budget - (stop - start) * 1000  # Delay in ms
-           if (diff > 0):
-              time.sleep(diff/1000) # Wait until next frame ready
+        frame_budget = 1000 / config.fps
+        try:
+            for frame in self.camera:
+               start = timeit.default_timer()
+               for c in self.consumers:
+                   c.put(frame)
+               stop = timeit.default_timer()
+               diff = frame_budget - (stop - start) * 1000  # Delay in ms
+               if (diff > 0):
+                  time.sleep(diff/1000) # Wait until next frame ready
+        except KeyboardInterrupt:
+            pass
 
     def stop(self):
         logger.debug(f'Camera stopped')
@@ -146,27 +149,34 @@ class RequestHandler(BaseHTTPRequestHandler):
         sys.exit(rc)
 
 
-
+# Set defaults for anything that can be found in the config file
+# Priority is command line, config file, and lowest is default
 class Config(configparser.ConfigParser):
     def __init__(self, configfile):
-        super(Config, self).__init__({
-            'width': 640,
-            'height': 480,
-            'fps': 30,
-        })
-        self.read_dict({'default': {'logfile': '/var/tmp/mjpgstreamer.log', \
-                       'loglevel':'WARNING'}})
-
-        self.read_dict({'server': {'listen': '', 'port': 8090,'keyfile':'', \
-                       'certfile':''}})
+        super(Config,self).__init__()
 
         if len(self.read(configfile)) == 0:
-            logger.warning(f'Couldn\'t read {configfile}, using default config')
-
-        if len(self.sections()) == 2:
+            print(f'Couldn\'t read {configfile}. Using default configuration')
+            # Force a video device even if no config file
             self.add_section('/dev/video0')
 
+        # Read the fixed sections
+        self.read_dict({'default': {
+                          'logfile': '',
+                          'loglevel':'WARNING'},
+                        'server': {
+                          'listen': '', 
+                          'port': 8090,
+                          'keyfile':'', 
+                          'certfile':''}})
+
+        # Can be other than /dev/video0
         self.device = self.get_devices()[0]
+
+        self.read_dict({self.device : {
+                          'width': 640,
+                          'height': 480,
+                          'fps': 30 }})
 
     def get_devices(self):
         return [s for s in self.sections() if s != 'server' and s != 'default']
@@ -174,14 +184,26 @@ class Config(configparser.ConfigParser):
     def get_device(self):
         return self.device
 
-    def width(self):
-        return int(self[self.device]['width'])
-
     def height(self):
         return int(self[self.device]['height'])
 
+    def width(self):
+        return int(self[self.device]['width'])
+
     def fps(self):
         return int(self[self.device]['fps'])
+
+    def logfile(self):
+        return config['default']['logfile']
+
+    def loglevel(self):
+        return config['default']['loglevel']
+
+    def listen(self):
+        return config['server']['listen']
+
+    def port(self):
+        return int(config['server']['port'])
 
     def certfile(self):
         return config['server']['certfile']
@@ -189,11 +211,6 @@ class Config(configparser.ConfigParser):
     def keyfile(self):
         return config['server']['keyfile']
 
-    def logfile(self):
-        return config['default']['logfile']
-
-    def loglevel(self):
-        return config['default']['loglevel']
 
 
 def usage():
@@ -209,7 +226,7 @@ if __name__ == '__main__':
  
     # Command line handling
     try:
-        arguments, values = getopt.getopt(sys.argv[1:], "hicd:", ["help", "info", "config=","debug="])
+        arguments, values = getopt.getopt(sys.argv[1:], "hic:d:", ["help", "info", "config=","debug="])
     except getopt.error as err:
         print(err)
         usage()
@@ -222,6 +239,7 @@ if __name__ == '__main__':
                 'W':'WARNING',
                 'E':'ERROR',
                 'C':'CRITICAL'}
+    loglevel_cmd = False
     for current_argument, current_value in arguments:
         if current_argument in ('-h', '--help'):
             usage()
@@ -236,51 +254,49 @@ if __name__ == '__main__':
                print(f'Invalid log argument {loglevel}')
                sys.exit(-1)
             loglevel = log_dict(loglevel)
+            loglevel_cmd = True   # Override the config
             print(f'Selected log level:{loglevel}')
+            
     
     # Config file handling
     # Set defaults as per config file, if any
     config = Config(configfile)
 
-    device = config.get_device()
-
-    logfile = config.logfile()
-    loglevel = config.loglevel()
-
-    hostname = config.get('server','listen')
-    hostport = config.getint('server','port')
-
-    height = config.height()
-    width = config.width()
-    fps =  config.fps()
-
     # Set up logging using "logger"
     # Process log level arg
-    log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(funcName)s(%(lineno)d) %(message)s')
+    logfile = config.logfile()
+    if loglevel_cmd is False:
+       loglevel = config.loglevel()
 
-    my_handler = RotatingFileHandler(logfile, mode='a', maxBytes=5*1024*1024,
+    if len(logfile)  != 0:
+        log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(funcName)s(%(lineno)d) %(message)s')
+        my_handler = RotatingFileHandler(logfile, mode='a', maxBytes=5*1024*1024,
                                    backupCount=2, encoding=None, delay=0)
-    my_handler.setFormatter(log_formatter)
-    numericLevel = getattr(logging, loglevel,"WARNING")
-    print(f'Logging:{loglevel} -> {logfile}')
-    my_handler.setLevel(numericLevel)
+        my_handler.setFormatter(log_formatter)
+        numericLevel = getattr(logging, loglevel,"WARNING")
+        print(f'Logging:{loglevel} -> {logfile}')
+        my_handler.setLevel(numericLevel)
 
-    logger = logging.getLogger('root')
-    logger.setLevel(numericLevel)
-    logger.addHandler(my_handler)
+        logger = logging.getLogger(__name__)
+        logger.setLevel(numericLevel)
+        logger.addHandler(my_handler)
+    else:
+        logger = logging.getLogger(__name__)
+        numericLevel = getattr(logging, loglevel,"WARNING")
+        logger.setLevel(numericLevel)
 
-    camera = Device(device)
-    # Use settings from the config file
-    camera.video_capture.set_format(width, height) 
-    camera.video_capture.set_fps(fps) 
+    camera = Device(config.get_device())
+    # Use settings from config 
+    camera.video_capture.set_format(config.width(), config.height()) 
+    camera.video_capture.set_fps(config.fps()) 
     # Copy what the camera thinks
-    width,height,fmt = camera.video_capture.get_format()
+    config.width,config.height,fmt = camera.video_capture.get_format()
+    config.fps = camera.video_capture.get_fps()
 
-    logger.info(f'Using device {device} {width}x{height}@{camera.video_capture.get_fps()} FPS')
-    print(f'Using device {device} {width}x{height}@{camera.video_capture.get_fps()} FPS')
+    logger.info(f'Using camera {config.get_device()} {config.width}x{config.height}@{config.fps} FPS')
 
     if list_info:
-        print(f'{width}x{height}@{camera.video_capture.get_fps()} FPS')
+        print(f'{width}x{height}@{camera.video_capture.get_fps} FPS')
         info = str(camera.info)
         print(info.replace(',','\n'))
         sys.exit(0)
@@ -289,8 +305,8 @@ if __name__ == '__main__':
     logger.debug(f'Camera starts')
     camera_thread.start()
 
-    srvr = HTTPServer((hostname,hostport), RequestHandler)
-    logger.debug(f'Server Starts - {hostname}:{hostport}')
+    srvr = HTTPServer((config.listen(),config.port()), RequestHandler)
+    logger.debug(f'Server Starts - {config.listen()}:{config.port()}')
     if len(config.keyfile()) != 0 and len(config.certfile()) != 0 :
         srvr.socket = ssl.wrap_socket(srvr.socket, \
                config.keyfile(), config.certfile(), server_side=True)

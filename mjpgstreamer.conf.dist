@@ -1,5 +1,5 @@
 [default]
-logfile=/var/tmp/mjpgstreamer.py
+logfile=/var/tmp/mjpgstreamer.log
 loglevel='WARNING'
 [server]
 listen =

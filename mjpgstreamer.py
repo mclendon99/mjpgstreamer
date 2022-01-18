@@ -62,7 +62,6 @@ class CameraThread(threading.Thread):
 
     def stop(self):
         logger.debug(f'Camera processing stopped')
-        self.camera.video_capture.stop()
         self.frame = None
 
     def register_queue(self, q):
@@ -75,9 +74,8 @@ class CameraThread(threading.Thread):
 
     def shutdown(self):
         logger.debug(f'Camera thread shutdown')
-        self.stop()
         self.consumers.clear()
-        self.camera.close()
+        sys.exit(0)
 
 class HTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
@@ -87,10 +85,10 @@ class HTTPServer(socketserver.ThreadingMixIn, HTTPServer):
       try:
           self.serve_forever()
       except KeyboardInterrupt:
-          return
+          sys.exit(-1)
 
     def shutdown(self):
-        self.server_close()
+        sys.exit(0)
 
 class RequestHandler(BaseHTTPRequestHandler):
     def process_camera_frames(self):
@@ -120,15 +118,16 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return -2
               except Exception as e:
                 logger.warning(f'Send 404 failed {self.client_address} {e}')
-                return -2
+                return -3
           except KeyboardInterrupt:
                 self.send_response(404)
                 self.end_headers()
                 self.shutdown()
-                return -2
+                return -1
           except Exception as e:
               logger.info(f'Empty queue timeout {e}')
               time.sleep(frame_budget/1000) # Wait until next frame ready
+              return -3
                   
     def do_GET(self):
         logger.debug(f'do_GET from {self.client_address}')

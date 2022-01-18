@@ -61,9 +61,9 @@ class CameraThread(threading.Thread):
             pass
 
     def stop(self):
-        logger.debug(f'Camera stopped')
+        logger.debug(f'Camera processing stopped')
+        self.camera.video_capture.stop()
         self.frame = None
-        self.consumers.clear()
 
     def register_queue(self, q):
         self.consumers.append(q)
@@ -74,9 +74,10 @@ class CameraThread(threading.Thread):
         logger.debug(f'Deregister consumer')
 
     def shutdown(self):
+        logger.debug(f'Camera thread shutdown')
         self.stop()
-        camera.close()
-        sys.exit(0)
+        self.consumers.clear()
+        self.camera.close()
 
 class HTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
@@ -89,7 +90,7 @@ class HTTPServer(socketserver.ThreadingMixIn, HTTPServer):
           return
 
     def shutdown(self):
-      self.server_close()
+        self.server_close()
 
 class RequestHandler(BaseHTTPRequestHandler):
     def process_camera_frames(self):
@@ -103,22 +104,22 @@ class RequestHandler(BaseHTTPRequestHandler):
               try:
                 self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
               except Exception as e:
-                logger.warning(f'Removing streaming client {self.client_address} {str(e)}')
+                logger.warning(f'Removing streaming client {self.client_address} {e}')
                 try:
                   self.send_error(404)
                   self.end_headers()
                   return 0
                 except Exception as e:
-                  logger.info(f'Send 404 failed {self.client_address} {str(e)}')
+                  logger.info(f'Send 404 failed {self.client_address} {e}')
                   return 0 # Don't kill everything. Go back and wait for new connection
             else:
               try: 
-                logger.info(f'Camera shutdown detected {self.client_address} {str(e)}')
+                logger.info(f'Camera shutdown detected {self.client_address} {e}')
                 self.send_response(404)
                 self.end_headers()
                 return -2
               except Exception as e:
-                logger.warning(f'Send 404 failed {self.client_address} {str(e)}')
+                logger.warning(f'Send 404 failed {self.client_address} {e}')
                 return -2
           except KeyboardInterrupt:
                 self.send_response(404)
@@ -126,7 +127,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.shutdown()
                 return -2
           except Exception as e:
-              logger.info(f'Empty queue timeout {str(e)}')
+              logger.info(f'Empty queue timeout {e}')
               time.sleep(frame_budget/1000) # Wait until next frame ready
                   
     def do_GET(self):
@@ -147,6 +148,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         camera_thread.unregister_queue(self.q)
         logger.debug(f'do_GET - exit thread {self.client_address}:{rc}')
         sys.exit(rc)
+
+    def log_message(self, format, *args):
+        logger.debug(f'{self.address_string()}: {format % args}')
 
 
 # Set defaults for anything that can be found in the config file
@@ -323,4 +327,4 @@ if __name__ == '__main__':
     camera_thread.shutdown()
     camera_thread.join()
    
-    logger.debug(f'Server Stops - {hostname}:{hostport}')
+    logger.debug(f'Server Stops - {myHostName}:{config.port()}')

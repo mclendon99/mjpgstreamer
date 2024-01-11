@@ -43,7 +43,7 @@ The last section contains the [/path/to/video_device]. One may also configure th
 - Support multiple cameras (because why not)
 - Test on the RPI with the MIPI camera
 
-[1]https://github.com/soyersoyer/fmp4streamer
-[2]https://pypi.org/project/v4l2py/
-[3]https://bugs.launchpad.net/python-v4l2/+bug/1664158 
+[1] https://github.com/soyersoyer/fmp4streamer
+[2] https://pypi.org/project/v4l2py/
+[3] https://bugs.launchpad.net/python-v4l2/+bug/1664158 
 -

@@ -8,7 +8,7 @@ The [v4l2py][2] library was also used. Be sure to patch the v4l2 library as indi
 #### Features
 - Lightweight - around 12% CPU on a single core 500 MHz ARMv7 capturing 640x480 30fps
   - UVC driver adds another 5%
-- Built using Python3.7 on a Beaglebone Black 5.10.87-bone59
+- Built using Python3.7 on a Beaglebone Black 5.10.87-bone59. Runs on a PI3B or PI 4 as well.
 - Based on v4l2py 0.6.0 [2]
 - Supports multiple browser connections
 - Supports USB uv4l cameras
@@ -20,7 +20,7 @@ The [v4l2py][2] library was also used. Be sure to patch the v4l2 library as indi
   - Try blocks everywhere
   - Lot's of logging
 - Configurable via config file
-- COmmand line options override configuration options which override default options
+- Command line options override configuration options which override default options
 
 The config file has multiple sections:
 
@@ -32,17 +32,20 @@ The logfile, if configured, sets a rotating file log. If not configured, stdout 
 logfile=/var/tmp/mjpgstreamer.log
 loglevel='WARNING'
 
-The [server] section configures a server to listen and the port number on which it listens for HTTP GETS. If both the keyfile (private key) and certfile (certificate) parameters are configured, the server will listen for HTTPS requests.
+The [server] section configures a server to listen on the port number over which it receives HTTP GETS. If both the keyfile (private key) and certfile (certificate) parameters are configured, the server will listen for HTTPS requests.
 
-The lasst section contains the [/path/to/video_device]. One may also configure the width, height, and frames per second (fps). These parameters are sent to the3 video device. The video device is then queried for it's actual settings.
+The last section contains the [/path/to/video_device]. One may also configure the width, height, and frames per second (fps). These parameters are sent to the3 video device. The video device is then queried for it's actual settings.
 
 
 #### Todo
 - Support configuration of multiple servers on different ports, e.g. HTTP and HTTPS simultaneously
+- Each connection yhas it's own thread.
 - Support multiple cameras (because why not)
 - Test on the RPI with the MIPI camera
 
 [1]https://github.com/soyersoyer/fmp4streamer
+
 [2]https://pypi.org/project/v4l2py/
+
 [3]https://bugs.launchpad.net/python-v4l2/+bug/1664158 
 -
